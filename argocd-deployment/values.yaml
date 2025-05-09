@@ -1,0 +1,742 @@
+global:
+  namespace: "orgname"  # This will be dynamically updated to org name (e.g., zeta)
+  deploy:
+    secret: false
+    mysql: false
+    airflow: false
+    hive: false
+    redis: false
+    kafka: false
+    trino: false
+    rangeradmin: false
+    neo4j: false
+    apollo: false
+    cerebrum: false
+    artemis: false
+    dex: false
+    mirage: false
+    cosmos: false
+    trinity: false
+    cortex: false
+    jobweaver: false
+    monitor: false
+
+  monitoring:
+    enabled: false
+
+  service:
+    namespace: "{{ .Values.global.namespace }}"
+    replicas: 1
+    tag: "v2.0.0"
+    imagePullPolicy: "Always"
+    secretName: "dview-secrets"
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "0.5Gi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: "role"
+                  operator: "In"
+                  values:
+                    - "{{ .Values.global.namespace }}"
+    nodeSelector:
+      kubernetes.io/arch: "arm64"
+    tolerations: []
+    autoscaling:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 1
+      averageMemoryUtilization: 70
+      averageCpuUtilization: 70
+    terminationGracePeriodSeconds: 30
+
+    monitor:
+      app:
+        image: "dview/pod-monitor"
+        tag: "v2.0.0"
+
+    mysql:
+      app:
+        image: "mysql"
+        tag: "8.0"
+        port: 3306
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1"
+      pvc:
+        enabled: true
+        size: "10Gi"
+
+    jobweaver:
+      replicas: 1
+      dependencies:
+        mysql:
+          port: 3306
+      app:
+        image: "dview/jobweaver"
+        tag: "v2.1.0"
+        pullPolicy: "IfNotPresent"
+        port: 8000
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "300m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        gitSync:
+          volumeRepoPath: "/mnt/data"
+          volumeRepoDestPath: "repo"
+        dbt:
+          dbtDocsLogDir: "/tmp/dbt_docs"
+          dbtArtifactsDir: "/tmp/dbt_artifacts"
+          lineagePort: 8080
+      sidecars:
+        dbt:
+          image: "dview/jobweaver-dbt"
+          tag: "v1.0.0"
+          pullPolicy: "Always"
+          resources:
+            requests:
+              memory: "300Mi"
+              cpu: "200m"
+            limits:
+              memory: "1000Mi"
+              cpu: "500m"
+        gitSync:
+          image: "k8s.gcr.io/git-sync/git-sync"
+          tag: "v3.2.2"
+          pullPolicy: "IfNotPresent"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+
+    hive:
+      app:
+        image: "dview/hive"
+        tag: "4.0.0"
+        port: 9083
+        pullPolicy: "Always"
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: "role"
+                      operator: "In"
+                      values:
+                        - "{{ .Values.global.namespace }}"
+                    - key: "arch"
+                      operator: "In"
+                      values: ["arm64"]
+        resources: {}
+      dependencies:
+        mysql:
+          port: 3306
+      pvc:
+        enabled: false
+
+    redis:
+      app:
+        image: "redis"
+        tag: "7.4.0"
+        port: 6379
+        resources: {}
+      pvc:
+        enabled: true
+        size: "10Gi"
+      sidecars: {}
+
+    kafka:
+      app:
+        image: "bitnami/kafka"
+        tag: "3.8.0-debian-12-r3"
+        port: 9092
+        resources: {}
+      replicas: 1
+      pvc:
+        enabled: true
+        size: "8Gi"
+
+    trino:
+      app:
+        image: "dview/trino"
+        tag: "444"
+        port: 8080
+        resources: {}
+      pvc:
+        enabled: false
+      workers: 1
+      ranger:
+        enabled: true
+        repository_name: "aqua"
+        endpoint: "http://ranger-admin:6080"
+      additionalCatalogs: {}
+      sidecars: {}
+
+    apollo:
+      pvc:
+        enabled: false
+      dependencies:
+        mysql:
+          port: 3306
+      app:
+        image: "dview/apollo"
+        tag: "v2.1.2"
+        port: 8080
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: "role"
+                      operator: "In"
+                      values:
+                        - "{{ .Values.global.namespace }}"
+        resources: {}
+      sidecars: {}
+
+    cerebrum:
+      pvc:
+        enabled: false
+      dependencies:
+        mysql:
+          port: 3306
+      app:
+        image: "dview/cerebrum-app"
+        tag: "v3.4.2"
+        port: 8000
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: "roles"
+                      operator: "In"
+                      values: ["metabase"]
+        resources: {}
+      sidecars:
+        cerebrumWorkers:
+          image: "dview/cerebrum-worker"
+          tag: "v3.4.2"
+          count: 3
+          resources: {}
+
+    artemis:
+      pvc:
+        enabled: false
+      dependencies:
+        mysql:
+          port: 3306
+      app:
+        image: "dview/artemis"
+        tag: "v2.1.0"
+        port: 8080
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: "role"
+                      operator: "In"
+                      values:
+                        - "{{ .Values.global.namespace }}"
+        resources: {}
+      sidecars: {}
+    pyserve:
+      pvc:
+        enabled: false
+      app:
+        image: "dview/pyserve"
+        affinity: {}
+        resources: {}
+    dex:
+      pvc:
+        enabled: false
+      dependencies:
+        mysql:
+          port: 3306
+      app:
+        image: "dview/dex"
+        tag: "v1.1.1"
+        port: 5556
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: "role"
+                      operator: "In"
+                      values:
+                        - "{{ .Values.global.namespace }}"
+        resources: {}
+      sidecars: {}
+
+    mirage:
+      pvc:
+        enabled: false
+      app:
+        image: "dview/mirage"
+        tag: "v2.3.2"
+        port: 80
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: "role"
+                      operator: "In"
+                      values:
+                        - "{{ .Values.global.namespace }}"
+        resources: {}
+      sidecars: {}
+
+    cosmos:
+      dependencies:
+        mysql:
+          port: 3306
+      pvc:
+        enabled: false
+      app:
+        image: "dview/cosmos"
+        tag: "v2.1.0"
+        port: 8085
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: "role"
+                      operator: "In"
+                      values:
+                        - "{{ .Values.global.namespace }}"
+        resources: {}
+      sidecars: {}
+
+    trinity:
+      pvc:
+        enabled: false
+      app:
+        image: "dview/trinity"
+        tag: "v1.1.1"
+        port: 8080
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - key: "role"
+                      operator: "In"
+                      values:
+                        - "{{ .Values.global.namespace }}"
+        resources: {}
+      sidecars: {}
+
+    rangeradmin:
+      pvc:
+        enabled: false
+      app:
+        image: "dview/ranger-admin"
+        tag: "v2.5.0"
+        port: 6080
+        resources: {}
+      sidecars: {}
+
+    cortex:
+      app:
+        image: "dview/cortex-app"
+        tag: "v4.0.2"
+        port: 8080
+        resources: {}
+      pvc:
+        enabled: true
+        size: "10Gi"
+      sidecars:
+        cortexWorker:
+          image: "dview/cortex-worker"
+          tag: "v4.0.2"
+          count: 3
+          resources: {}
+
+    airflow:
+      app:
+        port: 8080
+        resources: {}
+
+  virtualService:
+    gateways: "istio-ingress/internal-gateway"
+    deploy: true
+    domain: "dview.io"
+    hive:
+      required: true
+      hosts: "hive-{{ .Values.global.namespace }}.dview.io"
+    redis:
+      required: true
+      hosts: "redis-{{ .Values.global.namespace }}.dview.io"
+    kafka:
+      required: true
+      hosts: "kafka-{{ .Values.global.namespace }}.dview.io"
+    trino:
+      required: true
+      hosts: "trino-{{ .Values.global.namespace }}.dview.io"
+    apollo:
+      required: true
+      hosts: "apollo-{{ .Values.global.namespace }}.dview.io"
+    cerebrum:
+      required: true
+      hosts: "cerebrum-{{ .Values.global.namespace }}.dview.io"
+    artemis:
+      required: true
+      hosts: "artemis-{{ .Values.global.namespace }}.dview.io"
+    dex:
+      required: false
+      hosts: "dex-{{ .Values.global.namespace }}.dview.io"
+    mirage:
+      required: true
+      hosts: "cloud-{{ .Values.global.namespace }}.dview.io"
+    cosmos:
+      required: true
+      hosts: "cosmos-{{ .Values.global.namespace }}.dview.io"
+    trinity:
+      required: true
+      hosts: "trinity-{{ .Values.global.namespace }}.dview.io"
+    rangeradmin:
+      required: true
+      hosts: "rangeradmin-{{ .Values.global.namespace }}.dview.io"
+    cortex:
+      required: true
+      hosts: "cortex-{{ .Values.global.namespace }}.dview.io"
+    neo4j:
+      required: true
+      hosts: "neo4j-{{ .Values.global.namespace }}.dview.io"
+    mysql:
+      required: true
+      hosts: "mysql-{{ .Values.global.namespace }}.dview.io"
+    airflow:
+      required: true
+      hosts: "airflow-{{ .Values.global.namespace }}.dview.io"
+    jobweaver:
+      required: true
+      hosts: "jobweaver-{{ .Values.global.namespace }}.dview.io"
+      dbt:
+        required: true
+        hosts: "dbtdocs-{{ .Values.global.namespace }}.dview.io"
+
+  envs:
+    data:
+      COMMON_MYSQL_HOST: "mysql.{{ .Values.global.namespace }}.svc.cluster.local"
+      COMMON_MYSQL_PORT: "3306"
+      COMMON_MYSQL_USERNAME: "ajhvf"
+      COMMON_MYSQL_PASSWORD: "jhfv"
+      COMMON_MYSQL_JDBC_BASE: "jdbc:mysql://mysql.{{ .Values.global.namespace }}.svc.cluster.local:3306/%s?useSSL=false"
+      COMMON_REDIS_HOST: "redis.{{ .Values.global.namespace }}.svc.cluster.local"
+      COMMON_REDIS_PORT: "6379"
+      COMMON_REDIS_PASSWORD: "placeholder"
+      COMMON_REDIS_USERNAME: "admin"
+      COMMON_REDIS_URL: "redis://:placeholder@redis.{{ .Values.global.namespace }}.svc.cluster.local:6379"
+      COMMON_KAFKA_BROKER: "dview-stack-kafka.{{ .Values.global.namespace }}.svc.cluster.local:9092"
+      COMMON_KAFKA_SECURITY_PROTOCOL: "PLAINTEXT"
+      COMMON_KAFKA_ZOOKEEPER: "zookeeper:2181"
+      COMMON_GIT_USERNAME: "placeholder"
+      COMMON_GIT_TOKEN: "placeholder"
+      COMMON_GIT_REPO: "https://placeholder:placeholder@github.com/dview-io/dp-flow"
+      COMMON_GIT_BRANCH: "main"
+      COMMON_UI_DOMAIN: "https://cloud-{{ .Values.global.namespace }}.dview.io"
+      COMMON_APOLLO_INTERNAL_DOMAIN: "http://apollo.{{ .Values.global.namespace }}.svc.cluster.local"
+      COMMON_ARTEMIS_INTERNAL_DOMAIN: "http://artemis.{{ .Values.global.namespace }}.svc.cluster.local"
+      COMMON_TRINO_HOST: "trino.{{ .Values.global.namespace }}.svc.cluster.local"
+      COMMON_TRINO_PORT: "8080"
+      COMMON_TRINO_USERNAME: "admin"
+
+      APOLLO_AES_KEY: "80f5-8e2d264171ba"
+      APOLLO_AES_SALT: "b4e5-cc4a917b5784"
+      APOLLO_COOKIE_DOMAIN: "dview.io"
+      APOLLO_COOKIE_MAX_AGE: "90000"
+      APOLLO_COOKIE_PATH: "/"
+      APOLLO_USER_COOKIE: "token="
+      APOLLO_ENABLE_EMAIL: "false"
+      APOLLO_PASS_RECOVERY_SUBJECT: "Password Reset Link | Dview"
+      APOLLO_PASS_RECOVERY_SENDER: "asd"
+      APOLLO_PASS_RECOVERY_SENDER_PASSWORD: "asd"
+      APOLLO_EMAIL_VERIFICATION_SUBJECT: "Registration Confirmation | Dview"
+      APOLLO_EMAIL_VERIFICATION_SENDER: "test@dview.io"
+      APOLLO_EMAIL_VERIFICATION_SENDER_PASSWORD: "ashgcd"
+      APOLLO_DEMO_CREDENTIALS_EMAIL_SUBJECT: "Demo Credentials | Prosperr"
+      APOLLO_DEMO_CREDENTIALS_EMAIL_SENDER: "test@dview.io"
+      APOLLO_DEMO_CREDENTIALS_EMAIL_SENDER_PASSWORD: "jahs"
+      APOLLO_DEMO_CREDENTIALS_EMAIL_USERNAME: "test@dview.io"
+      APOLLO_DEMO_CREDENTIALS_EMAIL_PASSWORD: "etc"
+      APOLLO_BCC_EMAILS: "test@dview.io"
+      APOLLO_OAUTH_TOKEN_URI: "http://dex.{{ .Values.global.namespace }}.svc.cluster.local/dex/token"
+      APOLLO_OAUTH_CLIENT_ID: "placeholder"
+      APOLLO_OAUTH_CLIENT_SECRET: "placeholder"
+      APOLLO_OAUTH_REDIRECT_URI: "http://mirage.{{ .Values.global.namespace }}.svc.cluster.local/callback"
+      APOLLO_MYSQL_USR: "ajhvf"
+      APOLLO_MYSQL_PWD: "jhfv"
+      APOLLO_MYSQL_APOLLO_HOST: "jdbc:mysql://mysql.{{ .Values.global.namespace }}.svc.cluster.local:3306/apollo?useSSL=false"
+      APOLLO_RANGER_BASE_URL: "http://rangeradmin-{{ .Values.global.namespace }}.dview.io/ranger-admin:6080"
+      APOLLO_RANGER_ADMIN_USER: "placeholder"
+      APOLLO_RANGER_ADMIN_PASSWORD: "placeholder"
+      APOLLO_REDIS_URL: "redis://:placeholder@redis.{{ .Values.global.namespace }}.svc.cluster.local:6379"
+      APOLLO_API_KEY_ALGORITHM: "x"
+      APOLLO_API_KEY_SECRET: "x"
+      APOLLO_UI_DOMAIN: "https://cloud-{{ .Values.global.namespace }}.dview.io"
+
+      ARTEMIS_APOLLO_DB: "apollo"
+      ARTEMIS_APOLLO_INTERNAL_DOMAIN: "http://apollo.{{ .Values.global.namespace }}.svc.cluster.local"
+      ARTEMIS_APOLLO_ENABLE_AUTH_CHECK: "false"
+      ARTEMIS_MYSQL_USR: "ajhvf"
+      ARTEMIS_MYSQL_PWD: "jhfv"
+      ARTEMIS_MYSQL_HOST_ARTEMIS: "jdbc:mysql://mysql.{{ .Values.global.namespace }}.svc.cluster.local:3306/artemis?useSSL=true&requireSSL=false"
+      ARTEMIS_COOKIE: "dummy_cookie"
+      ARTEMIS_TOKEN: "OquX2147heXtc2YaqQ3"
+      ARTEMIS_SOURCE_ORG: "dview"
+      ARTEMIS_REPO_NAME: "k8-deployment"
+      ARTEMIS_USER_NAME: "buntydview"
+      ARTEMIS_FILE_NAME: "values.yaml"
+      ARTEMIS_STREAM_FILE_PATH: "stream"
+      ARTEMIS_ARGO_BASE_URL: "https://argocd-{{ .Values.global.namespace }}.dview.io"
+      ARTEMIS_ARGO_USER: "admin"
+      ARTEMIS_ARGO_PASSWORD: "ByNYoMlL"
+      ARTEMIS_DEPLOY_NAMESPACE: "{{ .Values.global.namespace }}"
+      ARTEMIS_KUBERNETES_SERVER: "https://kubernetes.default.svc"
+      ARTEMIS_KAFKA_BROKERS_PROD: "placeholder"
+      ARTEMIS_KAFKA_SECURITY_PROTOCOL: "PLAINTEXT"
+      ARTEMIS_MYSQL_FORTRESS_HOST_URL: "jdbc:mysql://mysql.{{ .Values.global.namespace }}.svc.cluster.local:3306/fortress?useSSL=false&autoReconnect=true"
+      ARTEMIS_ACCESS_KEY: "placeholder"
+      ARTEMIS_SECRET_KEY: "placeholder"
+      ARTEMIS_S3_BASE_PATH: "s3a://dview-nrt/testing/"
+      ARTEMIS_DEPLOY_FIBER: "false"
+      ARTEMIS_SCHEMA_REPO_NAME: "dp-flow"
+
+      COSMOS_METASTORE_JDBC_URL: "jdbc:mysql://mysql.{{ .Values.global.namespace }}.svc.cluster.local:3306/cosmos?useSSL=false"
+      COSMOS_METASTORE_USERNAME: "ajhvf"
+      COSMOS_METASTORE_PASSWORD: "jhfv"
+      COSMOS_ARTEMIS_METASTORE_URL: "http://artemis.{{ .Values.global.namespace }}.svc.cluster.local"
+      COSMOS_APOLLO_METASTORE_URL: "http://apollo.{{ .Values.global.namespace }}.svc.cluster.local"
+      COSMOS_TRINITY_URL: "http://trinity:80/trinity/v1/"
+      COSMOS_DSENSE_URL: "https://dsense-{{ .Values.global.namespace }}.dview.io/v1/"
+      COSMOS_VLLM_URL: "https://vllm.dview.io/v1/"
+      COSMOS_RAZORPAY_ID: "asd"
+      COSMOS_RAZORPAY_SECRET: "asd"
+      COSMOS_MULTIPART_FILE_SIZE: "100MB"
+      COSMOS_MULTIPART_MAX_REQUEST_SIZE: "100MB"
+      COSMOS_JOBWEAVER_BASE_URL: "https://jobweaver-{{ .Values.global.namespace }}.dview.io/v1"
+      COSMOS_KINASES_METASTORE_URL: "asd"
+      COSMOS_KINASES_NAMESPACE: "{{ .Values.global.namespace }}"
+      COSMOS_KINASES_SECRETS: "platform-user-secrets"
+      COSMOS_KINASES_AUTH: "Basic 4="
+
+      TRINITY_APOLLO_INTERNAL_DOMAIN: "http://apollo.{{ .Values.global.namespace }}.svc.cluster.local"
+      TRINITY_APOLLO_ENABLE_AUTH_CHECK: "false"
+      TRINITY_SMS_CONNECTION_STRING: "jdbc:trino://trino.{{ .Values.global.namespace }}.svc.cluster.local:8080/%s%s"
+      TRINITY_USE_SSL: "false"
+      TRINITY_RESULT_LIMIT: "100000"
+      TRINITY_QUERY_TIMEOUT: "180"
+
+      MIRAGE_REACT_APP_ARTEMIS_DOMAIN: "https://cosmos-{{ .Values.global.namespace }}.dview.io/api/v1/orchestrator"
+      MIRAGE_REACT_APP_APOLLO_DOMAIN: "https://apollo-{{ .Values.global.namespace }}.dview.io"
+      MIRAGE_REACT_APP_EIRENE_DOMAIN: ""
+      MIRAGE_REACT_APP_CORTEX_DOMAIN: "https://cortex-{{ .Values.global.namespace }}.dview.io"
+      MIRAGE_REACT_APP_DEX_DOMAIN: "https://dex-{{ .Values.global.namespace }}.dview.io"
+      MIRAGE_REACT_APP_OAUTH_CLIENT_ID: "7ku66c0llqb.apps.googleusercontent.com"
+      MIRAGE_REACT_APP_TRINITY_DOMAIN: "https://trinity-{{ .Values.global.namespace }}.dview.io"
+      MIRAGE_REACT_APP_CDN_URL: "asd"
+      MIRAGE_REACT_APP_NEUROTALK_DOMAIN: "https://neurotalk.dview.io"
+      MIRAGE_REACT_APP_SENSE_DOMAIN: "https://vllm.dview.io"
+      MIRAGE_REACT_APP_DSENSE_DOMAIN: "x"
+      MIRAGE_REACT_APP_MODEL_SCORE_PRECISION: "2"
+      MIRAGE_REACT_APP_UI_DOMAIN: "https://cloud-{{ .Values.global.namespace }}.dview.io"
+      MIRAGE_REACT_APP_JOBWEAVER_DOMAIN: "https://jobweaver-{{ .Values.global.namespace }}.dview.io"
+      MIRAGE_DBT_DOMAIN: "https://dbtdocs-{{ .Values.global.namespace }}.dview.io/"
+      MIRAGE_ADHOC_DISABLED: "false"
+      MIRAGE_TABLE_ROWS: "30"
+      MIRAGE_POLICIES_DOMAIN: "https://rangeradmin-{{ .Values.global.namespace }}.dview.io"
+      MIRAGE_PIPELINE_ACCESS: "true"
+      MIRAGE_ANALYTICS_ACCESS: "true"
+      MIRAGE_DSENSE_ACCESS: "true"
+      MIRAGE_RELATIONS_ACCESS: "true"
+      MIRAGE_WORKFLOW_ACCESS: "true"
+      MIRAGE_AIRFLOW_ACCESS: "true"
+      MIRAGE_FILE_SIZE_LIMIT: "10"
+      MIRAGE_AUTOREFRESH_TIME: "5000"
+      MIRAGE_REACT_APP_TRIAL_EXPIRATION_NO_OF_DAY: "14"
+      MIRAGE_CDN_URL: "placeholder"
+      MIRAGE_VOICE_TIMEOUT: "1000"
+      MIRAGE_MIN_CHAT_LENGTH: "3"
+      MIRAGE_RELATIONS_SEARCH_TERM: "inventory"
+      MIRAGE_RELATIONS_SEARCH_QUESTION_TERM: ""
+      MIRAGE_DEMO_ACCESS: ""
+      MIRAGE_DEMO_USER: ""
+      MIRAGE_DEMO_PASS: ""
+      MIRAGE_MODEL_SCORE_PRECISION: "2"
+      MIRAGE_ONBOARDING_ENABLED: "true"
+
+      MAXWELL_STORE_SCHEMA_PORT: "3306"
+      MAXWELL_STORE_SCHEMA_PASSWORD: "jhfv"
+      MAXWELL_STORE_SCHEMA_USER: "ajhvf"
+      MAXWELL_STORE_SCHEMA_HOST: "mysql.{{ .Values.global.namespace }}.svc.cluster.local"
+      MAXWELL_STORE_DB: "maxwell"
+
+      JOBWEAVER_ENV: "production"
+      JOBWEAVER_SERVICE_HOST: "jobweaver-{{ .Values.global.namespace }}.dview.io"
+      JOBWEAVER_GIT_SYNC_BRANCH: "main"
+      JOBWEAVER_GIT_SYNC_MAX_FILE_SIZE: "1048576"
+      JOBWEAVER_GIT_SYNC_BINARY_FILE_MAX_PREVIEW: "100"
+      JOBWEAVER_GIT_SYNC_WAIT_TIME: "6"
+      JOBWEAVER_REDIS_HOST: "redis.{{ .Values.global.namespace }}.svc.cluster.local"
+      JOBWEAVER_DBT_UI_BASE_URL: "https://dbtdocs-{{ .Values.global.namespace }}.dview.io"
+      JOBWEAVER_DBT_DOCS_PROFILE_DIR: "/profile"
+      JOBWEAVER_DBT_DOCS_DBT_PROJECT_DIR: "/modeling"
+      JOBWEAVER_DBT_MAX_CONCURRENT_TESTS: "5"
+      JOBWEAVER_DBT_TEST_TIMEOUT: "600"
+      JOBWEAVER_DBT_DOCS_LOG_DIR: "/tmp/dbt_docs"
+      JOBWEAVER_GIT_SYNC_REPO_PATH: "/mnt/data/repo"
+      JOBWEAVER_AIRFLOW_HOST: "airflow-{{ .Values.global.namespace }}.dview.io"
+      JOBWEAVER_AIRFLOW_ENDPOINT_VERSION: "v1"
+      JOBWEAVER_GITHUB_API_URL: "https://api.github.com/"
+      JOBWEAVER_APOLLO_BASE_URL: "https://apollo-{{ .Values.global.namespace }}.dview.io"
+      JOBWEAVER_GIT_SYNC_ADMIN_ACCESSIBLE_FILES: ".yml,.py"
+      JOBWEAVER_DBT_ARTIFACTS: "/modeling"
+      JOBWEAVER_AIRFLOW_USERNAME: "admin"
+      JOBWEAVER_AIRFLOW_PASSWORD: "admin"
+      JOBWEAVER_GITHUB_TOKEN: "placeholder"
+      JOBWEAVER_GITHUB_USERNAME: "placeholder"
+      JOBWEAVER_GITHUB_REPO_NAME: "dp-flow"
+      JOBWEAVER_REDIS_PASSWORD: "placeholder"
+      JOBWEAVER_DBT_DOCS_GENERATE_PERIOD: "300"
+      DBT_ARTIFACTS: "/modeling"
+      GIT_SYNC_BRANCH: "main"
+      GIT_SYNC_ROOT: "/mnt/data"
+      GITSYNC_PERIOD: "10"
+      GITSYNC_VERBOSE: "1"
+      GIT_SYNC_DEST: "repo"
+
+      DSENSE_DATASETS_PATH: "s3://temp/dsense/datasets"
+      DSENSE_DOMAIN: "https://dsense-{{ .Values.global.namespace }}.dview.io/v1/"
+      DSENSE_ENV: "PROD"
+      DSENSE_FERNET_KEY: "placeholder="
+      DSENSE_INTERNAL_TOKEN: "x"
+      DSENSE_PORT: "5000"
+      DSENSE_SQLALCHEMY_DATABASE_URI: "mysql+pymysql://ajhvf:jhfv@mysql.{{ .Values.global.namespace }}.svc.cluster.local:3306/dsense"
+      DSENSE_STATELESS_DATASETS_PATH: "s3://temp/dsense/stateless_datasets"
+      DSENSE_URL: "https://dsense-{{ .Values.global.namespace }}.dview.io/v1/"
+
+      CORTEX_AUTH_ENABLED: "true"
+      CORTEX_DISABLE_CORS: "true"
+      CORTEX_S3_UPLOADS_PATH: "s3://dview-benchmarking/dsense/cortex-{{ .Values.global.namespace }}/uploads"
+      CORTEX_STATELESS_CATALOG_NAME: "adhoc"
+      CORTEX_STATELESS_SCHEMA_NAME: "__stateless__"
+      CORTEX_UPLOADS_CATALOG_ALIAS: "adhoc"
+      CORTEX_UPLOADS_CATALOG_NAME: "adhoc"
+      CORTEX_UPLOADS_SCHEMA_ALIAS: "uploads"
+      CORTEX_UPLOADS_SCHEMA_NAME: "__uploads__"
+      CORTEX_TRINO_HOST: "trino.{{ .Values.global.namespace }}.svc.cluster.local"
+      CORTEX_TRINO_PORT: "8080"
+      CORTEX_TRINO_USERNAME: "admin"
+      CORTEX_TRINO_DEFAULT_CATALOG: "sms"
+      CORTEX_S3_REGION: "ap-south-1"
+      CORTEX_TRINO_DEFAULT_SCHEMA: "stream"
+      CORTEX_TRINO_DEFAULT_FETCH_LIMIT: "100000"
+      CORTEX_WHITELIST_DOMAIN: "dview.io"
+      CORTEX_REDIS_DB: "0"
+      CORTEX_REDIS_USER: "admin"
+      CORTEX_REDIS_AUTH_ENABLED: "false"
+      CORTEX_S3_AUTH_NEEDED: "false"
+      CORTEX_CEREBRUM_ENDPOINT: "http://cerebrum.{{ .Values.global.namespace }}.svc.cluster.local:8000"
+      CORTEX_APOLLO_ENDPOINT: "http://apollo.{{ .Values.global.namespace }}.svc.cluster.local"
+      CORTEX_ARGONAUT_ENDPOINT: "http://argonaut.default.svc.cluster.local:8080"
+      CORTEX_SQLALCHEMY_DATABASE_URI: "mysql+pymysql://ajhvf:jhfv@mysql.{{ .Values.global.namespace }}.svc.cluster.local:3306/dsense"
+      CORTEX_REDIS_PASSWORD: "placeholder"
+      CORTEX_REDIS_PORT: "6379"
+      CORTEX_REDIS_HOST: "redis.{{ .Values.global.namespace }}.svc.cluster.local"
+      CORTEX_AWS_ACCESS_KEY_ID: ""
+      CORTEX_AWS_SECRET_ACCESS_KEY: ""
+
+      CEREBRUM_LLM_RETRY_NUMBER: "5"
+      CEREBRUM_NEO4J_PASSWORD: "Dview@123"
+      CEREBRUM_NEO4J_URI: "bolt://neo4j.{{ .Values.global.namespace }}.svc.cluster.local"
+      CEREBRUM_NEO4J_USERNAME: "neo4j"
+      CEREBRUM_QUERY_SAMPLE_SIZE: "100"
+      CEREBRUM_EMBEDDING_MODEL: "all-MiniLM-L6-v2"
+      CEREBRUM_REDIS_PASSWORD: "placeholder"
+      CEREBRUM_ENVIRONMENT: "production"
+      CEREBRUM_DEBUG_LEVEL: "INFO"
+      TOKENIZERS_PARALLELISM: "false"
+      CEREBRUM_TRINO_HOST: "trino.{{ .Values.global.namespace }}.svc.cluster.local"
+      CEREBRUM_TRINO_PORT: "8080"
+      CEREBRUM_TRINO_CATALOG: "tpcds"
+      CEREBRUM_TRINO_SCHEMA: "sf1"
+      CEREBRUM_TRINO_USERNAME: "admin"
+      CEREBRUM_CLOUD_STORAGE_TYPE: "S3"
+      CEREBRUM_CLOUD_STORAGE_BUCKET: "dview-benchmarking"
+      CEREBRUM_DINSIGHTS_WRITE_PATH: "demo/dsense/dinsights"
+      CEREBRUM_ANTHROPIC_PROMPTS_PATH: "/app/config/prompts/anthropic_prompts.yaml"
+      CEREBRUM_OPENAI_PROMPTS_PATH: "/app/config/prompts/openai_prompts.yaml"
+      CEREBRUM_MISTRAL_PROMPTS_PATH: "/app/config/prompts/mistral_prompts.yaml"
+      CEREBRUM_VLLM_OPENAI_PROMPTS_PATH: "/app/config/prompts/vllm_openai_prompts.yaml"
+      CEREBRUM_REDIS_HOST: "redis.{{ .Values.global.namespace }}.svc.cluster.local"
+      CEREBRUM_LOG_LEVEL: "INFO"
+      CEREBRUM_DINSIGHTS_SKLEARN_PVC_WRITE_PATH: "mnt/cerebrum/dinsights"
+
+      GIT_SYNC_REPO: "https://placeholder:placeholder@github.com/dview-io/dp-flow"
+      GIT_SYNC_ONE_TIME: "false"
+      GIT_SYNC_REV: "HEAD"
+      GIT_SYNC_WAIT: "60"
+      GIT_DP_FLOW_URL: "https://placeholder:placeholder@github.com/dview-io/dp-flow"
+      RANGER_CONFIG_PATH: "/mnt/ranger"
+      GIT_SYNC_TIMEOUT: "120"
+      GIT_KNOWN_HOSTS: "false"
+      GIT_SYNC_ADD_USER: "true"
+      GIT_SYNC_MAX_SYNC_FAILURES: "0"
+      CONNECTION_CHECK_MAX_COUNT: "0"
+      GIT_SYNC_PASSWORD: "placeholder"
+
+      DEX_DB: "dex"
+      DEX_DOMAIN: "https://dex-{{ .Values.global.namespace }}.dview.io"
+      DEX_ISSUER: "http://dex.{{ .Values.global.namespace }}.svc.cluster.local/dex"
+      DEX_REDIRECT_URI: "http://dex.{{ .Values.global.namespace }}.svc.cluster.local/dex/callback"
+      DEX_WEB_HTTP: "0.0.0.0:5556"
+      DEX_WEB_HTTPS: "0.0.0.0:5559"
+      MYSQL_DB: "dsense"
+      MYSQL_DB_HOST: "mysql.{{ .Values.global.namespace }}.svc.cluster.local"
+
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://dview-stack-kafka.{{ .Values.global.namespace }}.svc.cluster.local:9092"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_BROKER_ID: "0"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://dview-stack-kafka.{{ .Values.global.namespace }}.svc.cluster.local:9092"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "0@kafka-0.kafka:9093"
+      KAFKA_CFG_DELETE_TOPIC_ENABLE: "true"
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://kafka-controller-0.{{ .Values.global.namespace }}.svc.cluster.local:9092,CONTROLLER://kafka-0.kafka:9093"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_ZOOKEEPER_CONNECT: "zookeeper:2181"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "0@kafka-0.kafka-headless.${POD_NAMESPACE}.svc.cluster.local:9093,1@kafka-1.kafka-headless.${POD_NAMESPACE}.svc.cluster.local:9093,2@kafka-2.kafka-headless.${POD_NAMESPACE}.svc.cluster.local:9093"
+      KAFKA_ENABLE_KRAFT: "yes"
+      KAFKA_HEAP_OPTS: "-Xmx1024m -Xms1024m"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_ENDPOINT_WITH_PORT: "asd"
+
+      MYSQL_HOST: "jdbc:mysql://mysql.{{ .Values.global.namespace }}.svc.cluster.local:3306/artemis?useSSL=false"
+
+      SLACK_WEBHOOK_URL: "placeholder"
+      SLACK_CHANNEL_NAME: "#application-alerts"
